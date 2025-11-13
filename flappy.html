@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <title>Flappy Bird mit Bäumen</title>
+  <style>
+    body { text-align: center; background: #aee9ff; font-family: Arial, sans-serif; }
+    canvas { background: #87ceeb; display: block; margin: 20px auto; border: 2px solid #555; }
+    #info { color: #333; }
+  </style>
+</head>
+<body>
+  <h1>Flappy Bird - Roter Vogel & Bäume</h1>
+  <div id="info">Drücke die Leertaste oder klicke, damit der Vogel fliegt!</div>
+  <canvas id="game" width="400" height="600"></canvas>
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+
+    // Vogel Eigenschaften
+    let bird = { x: 80, y: 300, w: 30, h: 30, velocity: 2, gravity: 0.15, jump: -4.5 };
+
+    // Baum-Hindernisse
+    let trees = [];
+    let treeGap = 150;
+    let treeWidth = 60;
+    let treeSpeed = 2;
+    let score = 0;
+    let gameOver = false;
+    let groundHeight = 40; // Höhe des Bodens
+
+    // Wolken-Array
+    let clouds = [
+      {x: 50, y: 80, r: 30, dx: 0.3},
+      {x: 200, y: 60, r: 25, dx: 0.2},
+      {x: 320, y: 100, r: 35, dx: 0.25},
+      {x: 120, y: 150, r: 20, dx: 0.18}
+    ];
+
+    function resetGame() {
+      bird.y = 300;
+      bird.velocity = 0;
+      trees = [];
+      score = 0;
+      gameOver = false;
+    }
+
+    function drawBird() {
+      ctx.save();
+      ctx.fillStyle = "#e74c3c";
+      ctx.beginPath();
+      ctx.ellipse(bird.x, bird.y, bird.w/2, bird.h/2, 0, 0, Math.PI*2);
+      ctx.fill();
+      // Auge
+      ctx.fillStyle = "#fff";
+      ctx.beginPath();
+      ctx.arc(bird.x+8, bird.y-5, 5, 0, Math.PI*2);
+      ctx.fill();
+      ctx.fillStyle = "#222";
+      ctx.beginPath();
+      ctx.arc(bird.x+10, bird.y-5, 2, 0, Math.PI*2);
+      ctx.fill();
+      // Schnabel
+      ctx.fillStyle = "#f9d71c";
+      ctx.beginPath();
+      ctx.moveTo(bird.x+15, bird.y);
+      ctx.lineTo(bird.x+25, bird.y-5);
+      ctx.lineTo(bird.x+15, bird.y+5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+
+    function drawTrees() {
+      trees.forEach(tree => {
+        // Baumstamm oben
+        ctx.fillStyle = "#deb887"; // Hellbraun
+        ctx.fillRect(tree.x, 0, treeWidth, tree.top);
+
+        // Holzmaserung oben
+        ctx.fillStyle = "#a97c50";
+        ctx.fillRect(tree.x + treeWidth/2 - 5, 0, 10, tree.top);
+
+        // Baumkrone oben
+        ctx.beginPath();
+        ctx.arc(tree.x + treeWidth/2, tree.top, treeWidth/2 + 5, Math.PI, 0, false);
+        ctx.fillStyle = "#228B22";
+        ctx.fill();
+
+        // Baumstamm unten
+        ctx.fillStyle = "#deb887";
+        ctx.fillRect(tree.x, tree.bottom, treeWidth, canvas.height - tree.bottom);
+
+        // Holzmaserung unten
+        ctx.fillStyle = "#a97c50";
+        ctx.fillRect(tree.x + treeWidth/2 - 5, tree.bottom, 10, canvas.height - tree.bottom);
+
+        // Baumkrone unten
+        ctx.beginPath();
+        ctx.arc(tree.x + treeWidth/2, tree.bottom, treeWidth/2 + 5, 0, Math.PI, false);
+        ctx.fillStyle = "#228B22";
+        ctx.fill();
+      });
+    }
+
+    function moveTrees() {
+      trees.forEach(tree => tree.x -= treeSpeed);
+      // Entferne Bäume, die aus dem Bild sind
+      if (trees.length && trees[0].x + treeWidth < 0) trees.shift();
+    }
+
+    function spawnTree() {
+      const top = Math.random() * (canvas.height - treeGap - 100) + 50;
+      const bottom = top + treeGap;
+      trees.push({ x: canvas.width, top, bottom });
+    }
+
+    function drawGround() {
+      ctx.fillStyle = "#228B22"; // Grün
+      ctx.fillRect(0, canvas.height - groundHeight, canvas.width, groundHeight);
+      // Optional: kleine Grasbüschel
+      for (let i = 0; i < canvas.width; i += 30) {
+        ctx.beginPath();
+        ctx.arc(i + 15, canvas.height - groundHeight, 10, Math.PI, 0, false);
+        ctx.fillStyle = "#a3c96b";
+        ctx.fill();
+      }
+    }
+
+    function drawClouds() {
+      clouds.forEach(cloud => {
+        // Hauptwolke
+        ctx.fillStyle = "rgba(255,255,255,0.85)";
+        ctx.beginPath();
+        ctx.arc(cloud.x, cloud.y, cloud.r, 0, Math.PI*2);
+        ctx.fill();
+        // Kleine Wolken
+        ctx.beginPath();
+        ctx.arc(cloud.x + cloud.r*0.7, cloud.y + 8, cloud.r*0.7, 0, Math.PI*2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(cloud.x - cloud.r*0.7, cloud.y + 5, cloud.r*0.6, 0, Math.PI*2);
+        ctx.fill();
+        // Bewegung
+        cloud.x += cloud.dx;
+        if (cloud.x - cloud.r > canvas.width) cloud.x = -cloud.r;
+      });
+    }
+
+    function checkCollision() {
+      // Boden oder Decke
+      if (bird.y + bird.h/2 > canvas.height - groundHeight || bird.y - bird.h/2 < 0) {
+        gameOver = true;
+      }
+      // Bäume
+      trees.forEach(tree => {
+        if (
+          bird.x + bird.w/2 > tree.x &&
+          bird.x - bird.w/2 < tree.x + treeWidth &&
+          (bird.y - bird.h/2 < tree.top || bird.y + bird.h/2 > tree.bottom)
+        ) {
+          gameOver = true;
+        }
+      });
+    }
+
+    function drawScore() {
+      ctx.fillStyle = "#222";
+      ctx.font = "24px Arial";
+      ctx.fillText("Score: " + score, 10, 40);
+    }
+
+    function gameLoop() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      drawClouds(); // Wolken im Hintergrund
+      drawGround(); // Boden zeichnen
+
+      if (gameOver) {
+        ctx.fillStyle = "#e74c3c";
+        ctx.font = "48px Arial";
+        ctx.fillText("Game Over!", 60, 300);
+        ctx.font = "28px Arial";
+        ctx.fillStyle = "#222";
+        ctx.fillText("Score: " + score, 140, 350);
+        ctx.font = "20px Arial";
+        ctx.fillText("Drücke Leertaste oder klicke zum Neustart!", 60, 400);
+        return;
+      }
+
+      // Vogel bewegen
+      bird.velocity += bird.gravity;
+      bird.y += bird.velocity;
+
+      // Bäume bewegen und zeichnen
+      moveTrees();
+      drawTrees();
+
+      // Vogel zeichnen
+      drawBird();
+
+      // Score anzeigen
+      drawScore();
+
+      // Kollision prüfen
+      checkCollision();
+
+      // Bäume erzeugen
+      if (trees.length === 0 || trees[trees.length-1].x < canvas.width - 220) {
+        spawnTree();
+      }
+
+      // Score erhöhen
+      trees.forEach(tree => {
+        if (!tree.passed && bird.x > tree.x + treeWidth) {
+          score++;
+          tree.passed = true;
+        }
+      });
+
+      requestAnimationFrame(gameLoop);
+    }
+
+    // Steuerung
+    function flap() {
+      if (gameOver) {
+        resetGame();
+        gameLoop();
+      } else {
+        bird.velocity = bird.jump;
+      }
+    }
+
+    document.addEventListener('keydown', function(e) {
+      if (e.code === "Space") flap();
+    });
+    canvas.addEventListener('mousedown', flap);
+
+    resetGame();
+    gameLoop();
+  </script>
+</body>
+</html>
