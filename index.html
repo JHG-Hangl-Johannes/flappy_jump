@@ -18,13 +18,13 @@
     const ctx = canvas.getContext('2d');
 
     // Vogel Eigenschaften
-    let bird = { x: 80, y: 300, w: 30, h: 30, velocity: 2, gravity: 0.15, jump: -4.5 };
+    let bird = { x: 80, y: 300, w: 30, h: 30, velocity: 2, gravity: 0.125, jump: -4.5 };
 
     // Baum-Hindernisse
     let trees = [];
-    let treeGap = 150;
-    let treeWidth = 60;
-    let treeSpeed = 2;
+    let treeGap = 200;
+    let treeWidth = 50;
+    let treeSpeed = 1.5;
     let score = 0;
     let gameOver = false;
     let groundHeight = 40; // Höhe des Bodens
@@ -235,7 +235,13 @@
       if (e.code === "Space") flap();
     });
     canvas.addEventListener('mousedown', flap);
+    window.addEventListener("devicemotion", (event) => {
+    const accelY = event.accelerationIncludingGravity.y;
 
+    if (accelY < -5) {   // upward jerk
+    flap();
+    }
+    });
     resetGame();
     gameLoop();
   </script>
