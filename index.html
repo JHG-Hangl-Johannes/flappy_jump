@@ -4,43 +4,88 @@
   <meta charset="UTF-8">
   <title>Flappy Bird mit Bäumen</title>
   <style>
-    body { text-align: center; background: #aee9ff; font-family: Arial, sans-serif; }
+    body { text-align: center; background: #aee9ff; font-family: Arial, sans-serif; margin:0; height:100vh; display:flex; align-items:center; justify-content:center; }
+    #wrapper { width:420px; }
     canvas { background: #87ceeb; display: block; margin: 20px auto; border: 2px solid #555; }
     #info { color: #333; }
     /* neue Styles für Motion-Anzeige */
     #motionInfo { color: #222; margin-top: 8px; }
     #motionValues { font-family: monospace; background: rgba(255,255,255,0.9); display: inline-block; padding: 6px 10px; border-radius: 6px; }
     #enableMotion { margin-left: 10px; padding: 6px 10px; }
+    /* Start menu overlay */
+    #startMenu {
+      position: absolute;
+      left: 0; right: 0; top: 0; bottom: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+    }
+    #startMenuInner {
+      pointer-events: auto;
+      background: rgba(0,0,0,0.7);
+      color: #fff;
+      padding: 20px;
+      border-radius: 10px;
+      width: 320px;
+      text-align: center;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+    }
+    #startMenuInner h2 { margin: 0 0 10px 0; font-size: 20px; }
+    #startMenuInner button { margin: 8px 6px; padding: 8px 12px; font-size: 16px; }
+    /* ensure calibrate button visible style */
+    #calibrateBtn { margin-left:8px; }
   </style>
 </head>
 <body>
-  <h1>Flappy Bird - Roter Vogel & Bäume</h1>
-  <div id="info">Drücke die Leertaste oder klicke, damit der Vogel fliegt!</div>
+  <div id="wrapper">
+    <h1>Flappy Bird - Roter Vogel & Bäume</h1>
+    <div id="info">Drücke die Leertaste oder klicke, damit der Vogel fliegt!</div>
 
-  <!-- Anzeige der Beschleunigungsdaten -->
-  <div id="motionInfo">
-    <span id="motionValues">ax: -, ay: -, az: -</span>
-    <button id="enableMotion" style="display:none;">Bewegung erlauben</button>
+    <!-- Anzeige der Beschleunigungsdaten -->
+    <div id="motionInfo">
+      <span id="motionValues">ax: -, ay: -, az: -</span>
+      <button id="enableMotion" style="display:none;">Bewegung erlauben</button>
+      <button id="calibrateBtn" style="display:none;">Kalibrieren</button>
+    </div>
+
+    <canvas id="game" width="400" height="600"></canvas>
   </div>
 
-  <canvas id="game" width="400" height="600"></canvas>
+  <!-- Start menu overlay (blocks input until Start pressed) -->
+  <div id="startMenu">
+    <div id="startMenuInner">
+      <h2>Flappy Bird</h2>
+      <p>Drücke Start, um zu beginnen. Kalibriere die Bewegung, falls du ein Mobilgerät verwendest.</p>
+      <div>
+        <button id="startBtn">Start</button>
+        <button id="startCalibrateBtn">Kalibrieren</button>
+      </div>
+      <p style="font-size:12px; margin-top:8px;">Während Kalibrierung ist Start deaktiviert.</p>
+    </div>
+  </div>
+
   <script>
     const canvas = document.getElementById('game');
     const ctx = canvas.getContext('2d');
 
-    // Vogel Eigenschaften
-    let bird = { x: 80, y: 300, w: 30, h: 30, velocity: 2, gravity: 0.125, jump: -4.5 };
+    // Elemente
+    const motionValuesEl = document.getElementById('motionValues');
+    const enableMotionBtn = document.getElementById('enableMotion');
+    const calibrateBtn = document.getElementById('calibrateBtn');
+    const startMenu = document.getElementById('startMenu');
+    const startBtn = document.getElementById('startBtn');
+    const startCalibrateBtn = document.getElementById('startCalibrateBtn');
 
-    // Baum-Hindernisse
+    // Spiel-Variablen
+    let bird = { x: 80, y: 300, w: 30, h: 30, velocity: 2, gravity: 0.125, jump: -4.5 };
     let trees = [];
     let treeGap = 200;
     let treeWidth = 50;
     let treeSpeed = 1.5;
     let score = 0;
     let gameOver = false;
-    let groundHeight = 40; // Höhe des Bodens
-
-    // Wolken-Array
+    let groundHeight = 40;
     let clouds = [
       {x: 50, y: 80, r: 30, dx: 0.3},
       {x: 200, y: 60, r: 25, dx: 0.2},
@@ -48,9 +93,13 @@
       {x: 120, y: 150, r: 20, dx: 0.18}
     ];
 
-    // Elemente für Motion-Anzeige
-    const motionValuesEl = document.getElementById('motionValues');
-    const enableMotionBtn = document.getElementById('enableMotion');
+    // Motion / calibration state
+    let selectedAxis = null; // 'x' | 'y' | 'z'
+    let baseline = 0;
+    let flapDirection = -1; // -1 negative spike, 1 positive spike
+    let flapThreshold = 5;
+    let isCalibrating = false;
+    let started = false;
 
     function resetGame() {
       bird.y = 300;
@@ -66,7 +115,6 @@
       ctx.beginPath();
       ctx.ellipse(bird.x, bird.y, bird.w/2, bird.h/2, 0, 0, Math.PI*2);
       ctx.fill();
-      // Auge
       ctx.fillStyle = "#fff";
       ctx.beginPath();
       ctx.arc(bird.x+8, bird.y-5, 5, 0, Math.PI*2);
@@ -75,7 +123,6 @@
       ctx.beginPath();
       ctx.arc(bird.x+10, bird.y-5, 2, 0, Math.PI*2);
       ctx.fill();
-      // Schnabel
       ctx.fillStyle = "#f9d71c";
       ctx.beginPath();
       ctx.moveTo(bird.x+15, bird.y);
@@ -88,29 +135,18 @@
 
     function drawTrees() {
       trees.forEach(tree => {
-        // Baumstamm oben
-        ctx.fillStyle = "#deb887"; // Hellbraun
+        ctx.fillStyle = "#deb887";
         ctx.fillRect(tree.x, 0, treeWidth, tree.top);
-
-        // Holzmaserung oben
         ctx.fillStyle = "#a97c50";
         ctx.fillRect(tree.x + treeWidth/2 - 5, 0, 10, tree.top);
-
-        // Baumkrone oben
         ctx.beginPath();
         ctx.arc(tree.x + treeWidth/2, tree.top, treeWidth/2 + 5, Math.PI, 0, false);
         ctx.fillStyle = "#228B22";
         ctx.fill();
-
-        // Baumstamm unten
         ctx.fillStyle = "#deb887";
         ctx.fillRect(tree.x, tree.bottom, treeWidth, canvas.height - tree.bottom);
-
-        // Holzmaserung unten
         ctx.fillStyle = "#a97c50";
         ctx.fillRect(tree.x + treeWidth/2 - 5, tree.bottom, 10, canvas.height - tree.bottom);
-
-        // Baumkrone unten
         ctx.beginPath();
         ctx.arc(tree.x + treeWidth/2, tree.bottom, treeWidth/2 + 5, 0, Math.PI, false);
         ctx.fillStyle = "#228B22";
@@ -120,7 +156,6 @@
 
     function moveTrees() {
       trees.forEach(tree => tree.x -= treeSpeed);
-      // Entferne Bäume, die aus dem Bild sind
       if (trees.length && trees[0].x + treeWidth < 0) trees.shift();
     }
 
@@ -131,9 +166,8 @@
     }
 
     function drawGround() {
-      ctx.fillStyle = "#228B22"; // Grün
+      ctx.fillStyle = "#228B22";
       ctx.fillRect(0, canvas.height - groundHeight, canvas.width, groundHeight);
-      // Optional: kleine Grasbüschel
       for (let i = 0; i < canvas.width; i += 30) {
         ctx.beginPath();
         ctx.arc(i + 15, canvas.height - groundHeight, 10, Math.PI, 0, false);
@@ -144,30 +178,25 @@
 
     function drawClouds() {
       clouds.forEach(cloud => {
-        // Hauptwolke
         ctx.fillStyle = "rgba(255,255,255,0.85)";
         ctx.beginPath();
         ctx.arc(cloud.x, cloud.y, cloud.r, 0, Math.PI*2);
         ctx.fill();
-        // Kleine Wolken
         ctx.beginPath();
         ctx.arc(cloud.x + cloud.r*0.7, cloud.y + 8, cloud.r*0.7, 0, Math.PI*2);
         ctx.fill();
         ctx.beginPath();
         ctx.arc(cloud.x - cloud.r*0.7, cloud.y + 5, cloud.r*0.6, 0, Math.PI*2);
         ctx.fill();
-        // Bewegung
         cloud.x += cloud.dx;
         if (cloud.x - cloud.r > canvas.width) cloud.x = -cloud.r;
       });
     }
 
     function checkCollision() {
-      // Boden oder Decke
       if (bird.y + bird.h/2 > canvas.height - groundHeight || bird.y - bird.h/2 < 0) {
         gameOver = true;
       }
-      // Bäume
       trees.forEach(tree => {
         if (
           bird.x + bird.w/2 > tree.x &&
@@ -188,8 +217,16 @@
     function gameLoop() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      drawClouds(); // Wolken im Hintergrund
-      drawGround(); // Boden zeichnen
+      drawClouds();
+      drawGround();
+
+      if (!started) {
+        // show paused background behind start menu
+        drawBird();
+        drawScore();
+        requestAnimationFrame(gameLoop);
+        return;
+      }
 
       if (gameOver) {
         ctx.fillStyle = "#e74c3c";
@@ -203,34 +240,18 @@
         return;
       }
 
-      // Vogel bewegen
       bird.velocity += bird.gravity;
       bird.y += bird.velocity;
 
-      // Bäume bewegen und zeichnen
       moveTrees();
       drawTrees();
-
-      // Vogel zeichnen
       drawBird();
-
-      // Score anzeigen
       drawScore();
-
-      // Kollision prüfen
       checkCollision();
 
-      // Bäume erzeugen
-      if (trees.length === 0 || trees[trees.length-1].x < canvas.width - 220) {
-        spawnTree();
-      }
-
-      // Score erhöhen
+      if (trees.length === 0 || trees[trees.length-1].x < canvas.width - 220) spawnTree();
       trees.forEach(tree => {
-        if (!tree.passed && bird.x > tree.x + treeWidth) {
-          score++;
-          tree.passed = true;
-        }
+        if (!tree.passed && bird.x > tree.x + treeWidth) { score++; tree.passed = true; }
       });
 
       requestAnimationFrame(gameLoop);
@@ -238,9 +259,11 @@
 
     // Steuerung
     function flap() {
+      if (!started) return; // ignore input until game started
       if (gameOver) {
         resetGame();
-        gameLoop();
+        gameOver = false;
+        requestAnimationFrame(gameLoop);
       } else {
         bird.velocity = bird.jump;
       }
@@ -262,21 +285,132 @@
       const ax = acc.x, ay = acc.y, az = acc.z;
       updateMotionDisplay(ax, ay, az);
 
-      // bei kräftigem Ruck nach oben flappen (Anpassung für iPad/Akzelerometer)
-      if (typeof ay === 'number' && ay < -5) {
-        flap();
+      if (selectedAxis) {
+        const val = (selectedAxis === 'x') ? ax : (selectedAxis === 'y') ? ay : az;
+        if (typeof val === 'number') {
+          if (flapDirection < 0) {
+            if (val < baseline - flapThreshold) flap();
+          } else {
+            if (val > baseline + flapThreshold) flap();
+          }
+        }
+      } else {
+        if (typeof ay === 'number' && ay < -5) flap();
       }
     }
 
+    function sampleMotion(durationMs = 600) {
+     return new Promise((resolve) => {
+       const samples = [];
+       function onMove(e) {
+         const acc = e.accelerationIncludingGravity || e.acceleration || { x: null, y: null, z: null };
+         samples.push({ x: acc.x, y: acc.y, z: acc.z });
+       }
+       window.addEventListener('devicemotion', onMove, true);
+       setTimeout(() => {
+         window.removeEventListener('devicemotion', onMove, true);
+         resolve(samples);
+       }, durationMs);
+     });
+    }
+
+    async function calibrateMotion() {
+      if (isCalibrating) return;
+      isCalibrating = true;
+      // disable start while calibrating
+      startBtn.disabled = true;
+      startCalibrateBtn.disabled = true;
+
+      motionValuesEl.textContent = 'Halte ruhig ...';
+      await new Promise(r => setTimeout(r, 250));
+      const baseSamples = await sampleMotion(600);
+      const median = (arr) => {
+        const nums = arr.filter(n => typeof n === 'number');
+        if (!nums.length) return 0;
+        nums.sort((a,b)=>a-b);
+        return nums[Math.floor(nums.length/2)];
+      };
+      const baseX = median(baseSamples.map(s=>s.x));
+      const baseY = median(baseSamples.map(s=>s.y));
+      const baseZ = median(baseSamples.map(s=>s.z));
+
+      motionValuesEl.textContent = 'Jetzt: kurzer kräftiger Ruck';
+      await new Promise(r => setTimeout(r, 400));
+      const actionSamples = await sampleMotion(900);
+
+      const peakDelta = (arr, base) => {
+        const vals = arr.filter(v => typeof v === 'number');
+        if (!vals.length) return { maxPos:0, maxNeg:0 };
+        let maxPos = -Infinity, maxNeg = Infinity;
+        for (const v of vals) {
+          const d = v - base;
+          if (d > maxPos) maxPos = d;
+          if (d < maxNeg) maxNeg = d;
+        }
+        return { maxPos: isFinite(maxPos) ? maxPos : 0, maxNeg: isFinite(maxNeg) ? maxNeg : 0 };
+      };
+
+      const dx = peakDelta(actionSamples.map(s=>s.x), baseX);
+      const dy = peakDelta(actionSamples.map(s=>s.y), baseY);
+      const dz = peakDelta(actionSamples.map(s=>s.z), baseZ);
+
+      const absX = Math.max(Math.abs(dx.maxPos), Math.abs(dx.maxNeg));
+      const absY = Math.max(Math.abs(dy.maxPos), Math.abs(dy.maxNeg));
+      const absZ = Math.max(Math.abs(dz.maxPos), Math.abs(dz.maxNeg));
+      let axis = 'y';
+      if (absX > absY && absX >= absZ) axis = 'x';
+      else if (absZ > absY && absZ > absX) axis = 'z';
+
+      selectedAxis = axis;
+      if (axis === 'x') baseline = baseX;
+      if (axis === 'y') baseline = baseY;
+      if (axis === 'z') baseline = baseZ;
+
+      const deltas = (axis === 'x') ? dx : (axis === 'y') ? dy : dz;
+      if (Math.abs(deltas.maxPos) >= Math.abs(deltas.maxNeg)) {
+        flapDirection = 1;
+        flapThreshold = Math.max(1, deltas.maxPos * 0.6);
+      } else {
+        flapDirection = -1;
+        flapThreshold = Math.max(1, Math.abs(deltas.maxNeg) * 0.6);
+      }
+
+      motionValuesEl.textContent = `Kalibriert: ${selectedAxis} (thr ${Math.round(flapThreshold*100)/100}, dir ${flapDirection<0?'-':'+'})`;
+      setTimeout(() => { motionValuesEl.textContent = `ax: -, ay: -, az: -`; }, 1200);
+
+      // re-enable start
+      isCalibrating = false;
+      startBtn.disabled = false;
+      startCalibrateBtn.disabled = false;
+    }
+
+    // wire calibrate buttons (both the motionInfo and start menu calibrate)
+    if (calibrateBtn) {
+      calibrateBtn.onclick = () => {
+        calibrateBtn.disabled = true;
+        startBtn.disabled = true;
+        calibrateMotion().finally(() => { calibrateBtn.disabled = false; startBtn.disabled = false; });
+      };
+    }
+    if (startCalibrateBtn) {
+      startCalibrateBtn.onclick = () => {
+        startCalibrateBtn.disabled = true;
+        startBtn.disabled = true;
+        calibrateMotion().finally(() => { startCalibrateBtn.disabled = false; startBtn.disabled = false; });
+      };
+    }
+
+    // setup devicemotion listener (with iOS permission flow)
     function setupMotionListeners() {
       window.removeEventListener('devicemotion', handleDeviceMotion);
       window.addEventListener('devicemotion', handleDeviceMotion, true);
       enableMotionBtn.style.display = 'none';
+      if (calibrateBtn) calibrateBtn.style.display = 'inline-block';
+      if (startCalibrateBtn) startCalibrateBtn.style.display = 'inline-block';
     }
 
     function enableMotionIfNeeded() {
       if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
-        // iOS benötigt explizite Erlaubnis
         enableMotionBtn.style.display = 'inline-block';
         enableMotionBtn.textContent = 'Bewegung erlauben';
         enableMotionBtn.onclick = function() {
@@ -292,16 +426,23 @@
           });
         };
       } else {
-        // andere Browser: direkt registrieren
         setupMotionListeners();
       }
     }
 
-    // Initialisieren
-    resetGame();
-    gameLoop();
-    enableMotionIfNeeded();
+    // Start button behavior: hide menu, start loop
+    startBtn.addEventListener('click', () => {
+      if (isCalibrating) return;
+      started = true;
+      startMenu.style.display = 'none';
+      resetGame();
+      requestAnimationFrame(gameLoop);
+    });
 
+    // prevent game from starting until Start pressed - initial state shows menu
+    resetGame();
+    enableMotionIfNeeded();
+    requestAnimationFrame(gameLoop);
   </script>
 </body>
 </html>
